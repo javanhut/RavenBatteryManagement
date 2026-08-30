@@ -1,0 +1,57 @@
+# Raven Power's build and installation interface for ImLazy.
+
+[settings]
+default = "build"
+
+[variables]
+app_id = "org.raven.Power"
+binary = "raven-power"
+prefix = "/usr/local"
+bindir = "{{prefix}}/bin"
+datadir = "{{prefix}}/share"
+target = "target/release/{{binary}}"
+
+[commands]
+
+[commands.build]
+desc = "Build the optimized Raven Power binary"
+alias = ["b"]
+run = ["cargo build --locked --release"]
+
+[commands.run]
+desc = "Run Raven Power from the build tree"
+run = ["cargo run --release"]
+
+[commands.test]
+desc = "Run the Raven Power test suite"
+alias = ["t"]
+run = ["cargo test --locked"]
+
+[commands.check]
+desc = "Run formatting, Clippy, and the test suite"
+run = [
+  "cargo fmt --check",
+  "cargo clippy --locked --all-targets -- -D warnings",
+  "cargo test --locked",
+]
+
+[commands.install]
+desc = "Install Raven Power and its desktop entry (may need sudo)"
+dep = ["build"]
+run = [
+  "install -Dm755 {{target}} {{bindir}}/{{binary}}",
+  "install -Dm644 data/{{app_id}}.desktop {{datadir}}/applications/{{app_id}}.desktop",
+  "sh -c 'command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q {{datadir}}/applications || true'",
+]
+
+[commands.uninstall]
+desc = "Remove Raven Power"
+run = [
+  "rm -f {{bindir}}/{{binary}}",
+  "rm -f {{datadir}}/applications/{{app_id}}.desktop",
+  "sh -c 'command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q {{datadir}}/applications || true'",
+]
+
+[commands.clean]
+desc = "Clean build artifacts"
+run = ["cargo clean"]

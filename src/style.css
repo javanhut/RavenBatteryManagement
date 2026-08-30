@@ -1,0 +1,140 @@
+/* Raven shared glass language — kept in lockstep with Settings and Store. */
+@define-color accent_bg_color #7AA2F7;
+@define-color accent_color #7AA2F7;
+@define-color window_bg_color #16161f;
+@define-color window_fg_color #d0d0e0;
+@define-color headerbar_bg_color #16161f;
+@define-color headerbar_fg_color #d0d0e0;
+@define-color headerbar_border_color #2a2a3a;
+@define-color headerbar_shade_color rgba(0,0,0,0.36);
+@define-color view_bg_color #1a1a26;
+@define-color view_fg_color #d0d0e0;
+@define-color card_bg_color #1e1e2b;
+@define-color card_fg_color #d0d0e0;
+@define-color dialog_bg_color #1e1e2b;
+@define-color dialog_fg_color #d0d0e0;
+@define-color popover_bg_color #1e1e2b;
+@define-color popover_fg_color #d0d0e0;
+@define-color sidebar_bg_color #141420;
+@define-color borders #2a2a3a;
+
+window.raven { background-color: @window_bg_color; }
+headerbar {
+  box-shadow: none;
+  border-bottom: 1px solid #2a2a3a;
+  background-color: transparent;
+}
+toolbarview, stack { background-color: transparent; }
+
+/* The compositor provides blur behind these translucent surfaces. */
+window.raven.glass { background-color: alpha(#16161f, 0.72); }
+window.raven.glass .sidebar {
+  background-color: alpha(#0e0e16, 0.45);
+  border-right-color: alpha(#ffffff, 0.07);
+}
+window.raven.glass .card,
+window.raven.glass .raven-card,
+window.raven.glass .metric-card,
+window.raven.glass .profile-card {
+  background-color: alpha(#ffffff, 0.085);
+  border-color: alpha(#ffffff, 0.11);
+}
+window.raven.glass headerbar { border-bottom-color: alpha(#ffffff, 0.07); }
+window.raven.glass switch,
+window.raven.glass scale trough { background-color: alpha(#ffffff, 0.10); }
+
+.sidebar {
+  background-color: #141420;
+  border-right: 1px solid #2a2a3a;
+  padding: 18px 14px;
+}
+.sidebar .brand { margin: 0 8px 14px 8px; }
+.sidebar .brand image { color: @accent_bg_color; -gtk-icon-size: 34px; }
+.sidebar .app-title { font-size: 19px; font-weight: 700; }
+.sidebar .app-subtitle { font-size: 12px; color: alpha(@window_fg_color, 0.55); }
+.sidebar list.navigation-sidebar { background: transparent; }
+.sidebar list.navigation-sidebar row {
+  border-radius: 10px;
+  padding: 9px 10px;
+  margin: 2px 0;
+}
+.sidebar list.navigation-sidebar row:selected {
+  background-color: alpha(@accent_bg_color, 0.22);
+  color: @window_fg_color;
+  box-shadow: inset 0 0 0 1px alpha(@accent_bg_color, 0.55);
+}
+.sidebar list.navigation-sidebar row image { color: @accent_bg_color; }
+
+.page-scroll > viewport { background-color: transparent; }
+.page { padding: 28px 34px 42px; }
+.card, .raven-card, .metric-card, .profile-card {
+  background-color: #1e1e2b;
+  border: 1px solid #2a2a3a;
+  border-radius: 14px;
+  padding: 16px;
+}
+.raven-card .card-title { font-weight: 600; font-size: 15px; }
+.raven-card .dim, .dim-label { color: alpha(@window_fg_color, 0.60); }
+.status-card { padding: 12px 14px; }
+.status-card image { color: @accent_bg_color; }
+
+.hero { padding: 26px 28px; min-height: 190px; }
+.battery-gauge {
+  min-width: 145px;
+  min-height: 164px;
+  border-radius: 24px;
+  background-image: linear-gradient(135deg, #1c2d63, #3a2b7a 55%, #7a3fa0);
+  border: 1px solid alpha(#ffffff, 0.12);
+  color: #ffffff;
+  padding: 42px 24px;
+}
+.battery-percent { font-size: 34px; font-weight: 800; }
+.hero-title { font-size: 26px; font-weight: 800; letter-spacing: -1px; }
+.eyebrow, .green-label { color: @accent_bg_color; font-size: 11px; font-weight: 750; }
+.section-title, .card-title { font-size: 17px; font-weight: 700; }
+.row-title, .stat-value { font-weight: 600; }
+.dim-label { font-size: 12px; }
+
+.alert-card {
+  background-color: alpha(#F5A623, 0.10);
+  border: 1px solid alpha(#F5A623, 0.28);
+  border-radius: 14px;
+  padding: 16px;
+}
+.alert-icon { color: #F5A623; }
+.profile-card { min-height: 125px; }
+.profile-card:hover { border-color: alpha(@accent_bg_color, 0.50); }
+.active-profile {
+  border: 1px solid alpha(@accent_bg_color, 0.75);
+  background-color: alpha(@accent_bg_color, 0.14);
+  box-shadow: inset 0 0 0 1px alpha(@accent_bg_color, 0.28);
+}
+.metric-card { min-height: 115px; }
+.metric-value { font-size: 22px; font-weight: 700; }
+.data-row { padding: 15px 2px; border-bottom: 1px solid alpha(#ffffff, 0.08); }
+.data-row:last-child { border-bottom: none; }
+.info-note {
+  background-color: alpha(@accent_bg_color, 0.12);
+  color: alpha(@window_fg_color, 0.76);
+  border: 1px solid alpha(@accent_bg_color, 0.24);
+  padding: 13px 15px;
+  border-radius: 10px;
+}
+.health-ring {
+  min-width: 130px;
+  min-height: 130px;
+  border: 8px solid @accent_bg_color;
+  border-radius: 999px;
+  font-size: 24px;
+  font-weight: 800;
+  padding: 28px;
+}
+.badge {
+  background-color: alpha(@accent_bg_color, 0.25);
+  color: @accent_bg_color;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+scale trough highlight, switch:checked { background-color: @accent_bg_color; }

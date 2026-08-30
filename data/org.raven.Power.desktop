@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Raven Power
+Comment=Manage battery life and application power use
+Exec=raven-power
+Icon=battery-good-symbolic
+Terminal=false
+Type=Application
+Categories=Settings;System;
+Keywords=Battery;Power;Energy;Performance;
+
