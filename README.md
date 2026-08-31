@@ -34,10 +34,14 @@ Install the resulting `target/release/raven-power` binary and
 
 ## Privileged integration
 
-Profile switching first uses `powerprofilesctl` when available. Otherwise,
-Raven Power detects the kernel CPU-frequency driver and applies validated
-governor, maximum-frequency, and energy-performance settings directly. The
-same binary exposes a narrowly scoped `--apply-profile` helper mode and requests
-authorization through systemd `run0` or PolicyKit `pkexec`; the graphical UI
-never runs as root. Charge limits remain saved policy preferences because their
-sysfs interfaces are vendor-specific.
+On Raven Linux, profile switching asks `raven-powerd` over its desktop socket
+at `/run/raven-power/ctl` (`profile <preset>`); the session already holds the
+`video` group that socket requires, so no authorization prompt is involved and
+the daemon that owns the governor stays the only writer. Elsewhere, switching
+first uses `powerprofilesctl` when available. Otherwise, Raven Power detects
+the kernel CPU-frequency driver and applies validated governor,
+maximum-frequency, and energy-performance settings directly. The same binary
+exposes a narrowly scoped `--apply-profile` helper mode and requests
+authorization through systemd `run0` (only on systems booted with systemd) or
+PolicyKit `pkexec`; the graphical UI never runs as root. Charge limits remain
+saved policy preferences because their sysfs interfaces are vendor-specific.

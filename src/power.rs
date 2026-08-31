@@ -2,8 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
+    io::{BufRead, BufReader, Write},
+    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 
 #[derive(Clone, Debug)]
@@ -179,7 +182,7 @@ pub fn active_processes() -> Vec<ProcessGroup> {
         .into_values()
         .filter(|g| g.memory_mb > 10.0)
         .collect();
-    values.sort_by(|a, b| b.cpu_ticks.cmp(&a.cpu_ticks));
+    values.sort_by_key(|g| std::cmp::Reverse(g.cpu_ticks));
     values.truncate(12);
     values
 }
@@ -198,7 +201,52 @@ pub fn set_process_eco(pids: &[u32], eco: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// raven-powerd's desktop socket. Group `video`, which the session already
+/// holds, so profile requests need no authorization prompt at all.
+const POWER_SOCKET: &str = "/run/raven-power/ctl";
+
+/// Where raven-powerd publishes the profile it last applied, one word.
+const PROFILE_MARKER: &str = "/run/raven-power/profile";
+
+const POWERD_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// One line to raven-powerd, one line back, trimmed.
+fn ask_powerd(request: &str) -> Result<String, String> {
+    let mut stream = UnixStream::connect(POWER_SOCKET)
+        .map_err(|e| format!("raven-powerd is not reachable: {e}"))?;
+    stream.set_read_timeout(Some(POWERD_TIMEOUT)).ok();
+    stream.set_write_timeout(Some(POWERD_TIMEOUT)).ok();
+    stream
+        .write_all(format!("{request}\n").as_bytes())
+        .map_err(|e| e.to_string())?;
+    let mut reply = String::new();
+    BufReader::new(stream)
+        .read_line(&mut reply)
+        .map_err(|e| e.to_string())?;
+    Ok(reply.trim().to_string())
+}
+
+/// The preset named in a raven-powerd reply or marker such as
+/// "power-saver (auto)". `None` for "unmanaged" and for errors.
+fn profile_from_reply(reply: &str) -> Option<String> {
+    let word = reply.split_whitespace().next()?;
+    matches!(word, "performance" | "balanced" | "power-saver").then(|| word.to_string())
+}
+
 pub fn active_power_profile() -> String {
+    // The daemon that actually owns the governor on Raven Linux, first.
+    if let Some(profile) = ask_powerd("profile")
+        .ok()
+        .and_then(|reply| profile_from_reply(&reply))
+    {
+        return profile;
+    }
+    if let Some(profile) = fs::read_to_string(PROFILE_MARKER)
+        .ok()
+        .and_then(|marker| profile_from_reply(&marker))
+    {
+        return profile;
+    }
     if let Some(profile) = Command::new("powerprofilesctl")
         .arg("get")
         .output()
@@ -224,6 +272,18 @@ pub fn active_power_profile() -> String {
 
 pub fn set_power_profile(profile: &str) -> Result<(), String> {
     validate_profile(profile)?;
+    // Raven Linux: raven-powerd owns the governor and re-applies its preset
+    // on every supply poll, so a sysfs write behind its back would not stick.
+    // Its socket takes the request directly, with no authorization prompt.
+    match ask_powerd(&format!("profile {profile}")) {
+        Ok(reply) if !reply.starts_with("error") => return Ok(()),
+        Ok(reply) if !reply.contains("unknown command") => {
+            return Err(format!("raven-powerd refused: {reply}"));
+        }
+        // A daemon too old to know the verb, or no daemon at all: fall
+        // through to the paths every other system uses.
+        _ => {}
+    }
     if command_exists("powerprofilesctl") {
         let status = Command::new("powerprofilesctl")
             .args(["set", profile])
@@ -242,7 +302,10 @@ pub fn set_power_profile(profile: &str) -> Result<(), String> {
     }
     let executable = std::env::current_exe()
         .map_err(|e| format!("Could not locate the Raven Power executable: {e}"))?;
-    let status = if command_exists("run0") {
+    // run0 needs a booted systemd; without one it fails before any
+    // authorization happens, which must not be reported as a denial.
+    let systemd_booted = Path::new("/run/systemd/system").is_dir();
+    let output = if command_exists("run0") && systemd_booted {
         Command::new("run0")
             .args([
                 "--unit=raven-power-profile",
@@ -250,20 +313,29 @@ pub fn set_power_profile(profile: &str) -> Result<(), String> {
             ])
             .arg(&executable)
             .args(["--apply-profile", profile])
-            .status()
+            .output()
     } else if command_exists("pkexec") {
         Command::new("pkexec")
             .arg(&executable)
             .args(["--apply-profile", profile])
-            .status()
+            .output()
     } else {
-        return Err("Raven Power needs run0 or pkexec to change kernel power settings".into());
+        return Err(
+            "Raven Power needs raven-powerd, run0, or pkexec to change kernel power settings"
+                .into(),
+        );
     }
     .map_err(|e| format!("Could not request authorization: {e}"))?;
-    if status.success() {
+    if output.status.success() {
         Ok(())
     } else {
-        Err("The profile was not changed. Authorization was cancelled or denied.".into())
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr.trim();
+        if stderr.is_empty() {
+            Err("The profile was not changed. Authorization was cancelled or denied.".into())
+        } else {
+            Err(format!("The profile was not changed: {stderr}"))
+        }
     }
 }
 
@@ -454,5 +526,24 @@ mod tests {
     fn privileged_helper_rejects_unknown_profiles() {
         let error = apply_profile_sysfs("arbitrary-value").unwrap_err();
         assert!(error.contains("Invalid power profile"));
+    }
+
+    #[test]
+    fn parses_powerd_profile_replies() {
+        assert_eq!(
+            profile_from_reply("power-saver (override)").as_deref(),
+            Some("power-saver")
+        );
+        assert_eq!(
+            profile_from_reply("balanced (auto)").as_deref(),
+            Some("balanced")
+        );
+        assert_eq!(
+            profile_from_reply("performance").as_deref(),
+            Some("performance")
+        );
+        assert_eq!(profile_from_reply("unmanaged"), None);
+        assert_eq!(profile_from_reply("error: unknown command"), None);
+        assert_eq!(profile_from_reply(""), None);
     }
 }

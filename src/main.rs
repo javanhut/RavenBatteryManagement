@@ -352,7 +352,7 @@ fn overview_page(
     }
     let heading = section_title(
         "Choose your power mode",
-        "Raven applies profiles through the Linux power-profile service.",
+        "Raven applies profiles through raven-powerd or the Linux power-profile service.",
     );
     page.append(&heading);
     let profiles = gtk::Box::new(gtk::Orientation::Horizontal, 12);
