@@ -525,6 +525,7 @@ dependencies = [
  "libadwaita",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

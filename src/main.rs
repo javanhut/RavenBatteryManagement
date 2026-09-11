@@ -1,3 +1,4 @@
+mod desktop;
 mod power;
 
 use adw::prelude::*;
@@ -25,13 +26,42 @@ fn main() -> glib::ExitCode {
     app.run()
 }
 
+/// The shared Raven Glass sheet, then this app's own classes, in one
+/// provider; the accent and light-mode overrides go in a second one above
+/// it, exactly as Settings and Store layer theirs.
 fn load_css() {
+    let display = gdk::Display::default().expect("A graphical display is required");
     let provider = gtk::CssProvider::new();
-    provider.load_from_string(include_str!("style.css"));
+    provider.load_from_string(concat!(
+        include_str!("raven-glass.css"),
+        include_str!("style.css")
+    ));
     gtk::style_context_add_provider_for_display(
-        &gdk::Display::default().expect("A graphical display is required"),
+        &display,
         &provider,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    let desktop = desktop::Desktop::load();
+    let look = &desktop.appearance;
+    adw::StyleManager::default().set_color_scheme(match look.theme_mode {
+        desktop::ThemeMode::Dark => adw::ColorScheme::ForceDark,
+        desktop::ThemeMode::Light => adw::ColorScheme::ForceLight,
+        desktop::ThemeMode::Auto => adw::ColorScheme::PreferDark,
+    });
+    let accent = desktop.accent();
+    let mut css = format!(
+        "@define-color accent_bg_color {accent};\n@define-color accent_color {accent};\n"
+    );
+    if look.theme_mode == desktop::ThemeMode::Light {
+        css.push_str(include_str!("raven-glass-light.css"));
+    }
+    let overrides = gtk::CssProvider::new();
+    overrides.load_from_string(&css);
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &overrides,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
     );
 }
 
@@ -52,7 +82,10 @@ fn build_ui(app: &adw::Application) {
         .default_height(760)
         .build();
     window.add_css_class("raven");
-    window.add_css_class("glass");
+    // Alpha only; the blur behind a glass window is the compositor's.
+    if desktop::Desktop::load().appearance.transparency {
+        window.add_css_class("glass");
+    }
     let toast_overlay = adw::ToastOverlay::new();
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 10);
     sidebar.add_css_class("sidebar");
@@ -76,15 +109,17 @@ fn build_ui(app: &adw::Application) {
     navigation.add_css_class("navigation-sidebar");
     navigation.set_selection_mode(gtk::SelectionMode::Single);
     navigation.set_vexpand(true);
+    // Each section's icon sits in a tinted tile; the tint names the domain,
+    // never the accent, so the sidebar reads the same under any accent.
     let pages = [
-        ("view-grid-symbolic", "Overview"),
-        ("utilities-system-monitor-symbolic", "Energy usage"),
-        ("power-profile-balanced-symbolic", "Power profiles"),
-        ("application-x-executable-symbolic", "Applications"),
-        ("battery-good-symbolic", "Battery health"),
+        ("view-grid-symbolic", "Overview", "green"),
+        ("utilities-system-monitor-symbolic", "Energy usage", "orange"),
+        ("power-profile-balanced-symbolic", "Power profiles", "blue"),
+        ("application-x-executable-symbolic", "Applications", "purple"),
+        ("battery-good-symbolic", "Battery health", "red"),
     ];
-    for (icon, label) in pages {
-        navigation.append(&nav_row(icon, label));
+    for (icon, label, tint) in pages {
+        navigation.append(&nav_row(icon, label, tint));
     }
     sidebar.append(&navigation);
 
@@ -245,14 +280,18 @@ fn build_ui(app: &adw::Application) {
     window.present();
 }
 
-fn nav_row(icon: &str, label: &str) -> gtk::ListBoxRow {
+fn nav_row(icon: &str, label: &str, tint: &str) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
-    let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    box_.set_margin_start(8);
-    box_.set_margin_end(8);
-    box_.set_margin_top(9);
-    box_.set_margin_bottom(9);
-    box_.append(&gtk::Image::from_icon_name(icon));
+    let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    tile.add_css_class("nav-icon");
+    tile.add_css_class(tint);
+    tile.set_valign(gtk::Align::Center);
+    let image = gtk::Image::from_icon_name(icon);
+    image.set_halign(gtk::Align::Center);
+    image.set_hexpand(true);
+    tile.append(&image);
+    box_.append(&tile);
     let text = gtk::Label::new(Some(label));
     text.set_xalign(0.0);
     box_.append(&text);
