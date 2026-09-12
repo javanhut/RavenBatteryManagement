@@ -60,7 +60,7 @@ window.raven { background-color: @window_bg_color; color: @window_fg_color; }
    placeholders with `opacity: 55%`; left in place that stacks with our
    colour alpha and the text lands near 30%, unreadable over the glass.
    So every dimmed thing gets opacity 1 here and the colour does the work.
-   Small text (≤12.5px) gets a hair of positive tracking so it stays open. */
+   Small text (≤13px) gets a hair of positive tracking so it stays open. */
 window.raven row label.subtitle, window.raven .dim-label, window.raven .dimmed,
 window.raven headerbar .subtitle, window.raven windowtitle .subtitle,
 window.raven entry > text > placeholder, window.raven spinbutton > text > placeholder,
@@ -85,7 +85,7 @@ headerbar {
   border-bottom: 1px solid alpha(#ffffff, 0.07);
 }
 headerbar .title { font-size: 15px; font-weight: 600; letter-spacing: -0.1px; }
-headerbar .subtitle { font-size: 12.5px; color: alpha(@window_fg_color, 0.70); }
+headerbar .subtitle { font-size: 13px; color: alpha(@window_fg_color, 0.70); }
 headerbar windowtitle .title { font-weight: 600; }
 headerbar button { min-height: 28px; min-width: 28px; border-radius: 8px; padding: 0 6px; }
 windowcontrols button { min-height: 22px; min-width: 22px; padding: 0; }
@@ -100,7 +100,7 @@ windowcontrols button { min-height: 22px; min-width: 22px; padding: 0; }
 .sidebar .brand { margin: 2px 8px 10px 8px; }
 .sidebar .brand image { color: @accent_bg_color; -gtk-icon-size: 30px; }
 .sidebar .app-title { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; }
-.sidebar .app-subtitle { font-size: 12.5px; color: alpha(@window_fg_color, 0.70); }
+.sidebar .app-subtitle { font-size: 13px; color: alpha(@window_fg_color, 0.70); }
 .sidebar .sidebar-search {
   margin: 0 2px 12px 2px;
 }
@@ -133,7 +133,7 @@ windowcontrols button { min-height: 22px; min-width: 22px; padding: 0; }
 }
 .sidebar list.navigation-sidebar row:selected label { color: #ffffff; font-weight: 500; }
 .sidebar list.navigation-sidebar row:selected .badge { background-color: alpha(#ffffff, 0.22); color: #ffffff; }
-.sidebar list.navigation-sidebar row label { font-size: 13.5px; }
+.sidebar list.navigation-sidebar row label { font-size: 14px; }
 .sidebar separator { margin: 8px 6px; background-color: alpha(#ffffff, 0.08); }
 
 /* The tinted icon tile beside each section — a coloured rounded square
@@ -181,10 +181,10 @@ button.status-card:hover { background-color: alpha(#ffffff, 0.09); }
 .user-card .name, .name { font-weight: 600; }
 .section-title { font-size: 15px; font-weight: 600; letter-spacing: -0.1px; }
 .page-title { font-size: 26px; font-weight: 700; letter-spacing: -0.6px; color: @window_fg_color; }
-.page-subtitle { font-size: 13.5px; }
+.page-subtitle { font-size: 14px; }
 .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: alpha(@window_fg_color, 0.70); }
-.note { color: alpha(@window_fg_color, 0.70); font-size: 12.5px; letter-spacing: 0.1px; }
-.mono { font-family: monospace; font-size: 12.5px; }
+.note { color: alpha(@window_fg_color, 0.70); font-size: 13px; letter-spacing: 0.1px; }
+.mono { font-family: monospace; font-size: 13px; }
 .property { font-size: 13px; }
 
 /* Inset grouped list — the macOS settings list. Rows are flat, a hairline
@@ -206,8 +206,8 @@ list.boxed-list > row:first-child { border-top-left-radius: 12px; border-top-rig
 list.boxed-list > row:last-child { border-bottom: none; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
 list.boxed-list > row:hover { background-color: alpha(#ffffff, 0.035); }
 list.boxed-list > row.activatable:active { background-color: alpha(#ffffff, 0.08); }
-list.boxed-list > row .title { font-size: 13.5px; font-weight: 500; }
-list.boxed-list > row .subtitle { font-size: 12.5px; letter-spacing: 0.1px; color: alpha(@window_fg_color, 0.70); }
+list.boxed-list > row .title { font-size: 14px; font-weight: 500; }
+list.boxed-list > row .subtitle { font-size: 13px; letter-spacing: 0.1px; color: alpha(@window_fg_color, 0.70); }
 row.expander list { background-color: transparent; }
 .data-row { padding: 12px 2px; border-bottom: 1px solid alpha(#ffffff, 0.07); }
 .data-row:last-child { border-bottom: none; }
@@ -398,7 +398,7 @@ tooltip {
   box-shadow: 0 6px 20px alpha(#000000, 0.40);
   padding: 4px 8px;
 }
-tooltip label { color: @window_fg_color; font-size: 12.5px; }
+tooltip label { color: @window_fg_color; font-size: 13px; }
 
 /* Overlay scrollbars, thin and quiet. */
 scrollbar { background: transparent; border: none; }
