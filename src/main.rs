@@ -20,7 +20,12 @@ fn main() -> glib::ExitCode {
             }
         };
     }
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    // `NON_UNIQUE`: a second launch is a second window, as for every Raven
+    // app, rather than a raise of the first.
+    let app = adw::Application::builder()
+        .application_id(APP_ID)
+        .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+        .build();
     app.connect_startup(|_| load_css());
     app.connect_activate(build_ui);
     app.run()
@@ -91,7 +96,14 @@ fn build_ui(app: &adw::Application) {
     sidebar.add_css_class("sidebar");
     let brand = gtk::Box::new(gtk::Orientation::Horizontal, 11);
     brand.add_css_class("brand");
+    // The Raven mark, as /etc/os-release names it; the battery glyph only on
+    // a system that has not installed the logo.
     let brand_icon = gtk::Image::from_icon_name("battery-good-symbolic");
+    if let Some(display) = gtk::gdk::Display::default() {
+        if gtk::IconTheme::for_display(&display).has_icon("raven-logo") {
+            brand_icon.set_icon_name(Some("raven-logo"));
+        }
+    }
     brand.append(&brand_icon);
     let brand_text = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let app_title = gtk::Label::new(Some("Raven Power"));
