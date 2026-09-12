@@ -53,13 +53,28 @@
 
 /* ── Window ──────────────────────────────────────────────────────────── */
 window.raven { background-color: @window_bg_color; color: @window_fg_color; }
+
+/* ── Type ────────────────────────────────────────────────────────────── */
+/* Secondary text is ONE mechanism: the foreground at 70% alpha. Adwaita
+   also dims `row label.subtitle`, `.dim-label`, header subtitles and
+   placeholders with `opacity: 55%`; left in place that stacks with our
+   colour alpha and the text lands near 30%, unreadable over the glass.
+   So every dimmed thing gets opacity 1 here and the colour does the work.
+   Small text (≤12.5px) gets a hair of positive tracking so it stays open. */
+window.raven row label.subtitle, window.raven .dim-label, window.raven .dimmed,
+window.raven headerbar .subtitle, window.raven windowtitle .subtitle,
+window.raven entry > text > placeholder, window.raven spinbutton > text > placeholder,
+window.raven label.separator {
+  opacity: 1;
+}
+window.raven row label.title { opacity: 1; }
 toolbarview, stack, .page-scroll > viewport, scrolledwindow > viewport { background-color: transparent; }
 window.raven.csd { border-radius: 14px; }
 
 /* The glass window: alpha only. The blur behind it is the compositor's to
    draw. Toggled by "Window transparency" via the .glass class. */
-window.raven.glass { background-color: alpha(#15151b, 0.74); }
-window.raven.glass .sidebar { background-color: alpha(#0b0b10, 0.34); }
+window.raven.glass { background-color: alpha(#15151b, 0.85); }
+window.raven.glass .sidebar { background-color: alpha(#0b0b10, 0.40); }
 
 /* ── Header bar: a thin translucent strip, no shadow, no heavy rule. ──── */
 headerbar {
@@ -70,7 +85,7 @@ headerbar {
   border-bottom: 1px solid alpha(#ffffff, 0.07);
 }
 headerbar .title { font-size: 15px; font-weight: 600; letter-spacing: -0.1px; }
-headerbar .subtitle { font-size: 12px; color: alpha(@window_fg_color, 0.55); }
+headerbar .subtitle { font-size: 12.5px; color: alpha(@window_fg_color, 0.70); }
 headerbar windowtitle .title { font-weight: 600; }
 headerbar button { min-height: 28px; min-width: 28px; border-radius: 8px; padding: 0 6px; }
 windowcontrols button { min-height: 22px; min-width: 22px; padding: 0; }
@@ -85,7 +100,7 @@ windowcontrols button { min-height: 22px; min-width: 22px; padding: 0; }
 .sidebar .brand { margin: 2px 8px 10px 8px; }
 .sidebar .brand image { color: @accent_bg_color; -gtk-icon-size: 30px; }
 .sidebar .app-title { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; }
-.sidebar .app-subtitle { font-size: 12px; color: alpha(@window_fg_color, 0.55); }
+.sidebar .app-subtitle { font-size: 12.5px; color: alpha(@window_fg_color, 0.70); }
 .sidebar .sidebar-search {
   margin: 0 2px 12px 2px;
 }
@@ -100,7 +115,7 @@ windowcontrols button { min-height: 22px; min-width: 22px; padding: 0; }
   color: @window_fg_color;
 }
 .sidebar entry.search:focus-within { border-color: alpha(@accent_bg_color, 0.65); box-shadow: 0 0 0 3px alpha(@accent_bg_color, 0.20); }
-.sidebar entry.search image { color: alpha(@window_fg_color, 0.55); -gtk-icon-size: 14px; }
+.sidebar entry.search image { color: alpha(@window_fg_color, 0.60); -gtk-icon-size: 14px; }
 .sidebar list.navigation-sidebar { background: transparent; padding: 0; }
 .sidebar list.navigation-sidebar row {
   border-radius: 8px;
@@ -155,9 +170,10 @@ windowcontrols button { min-height: 22px; min-width: 22px; padding: 0; }
   transition: background-color 120ms ease-out, border-color 120ms ease-out;
 }
 .raven-card .card-title, .card-title { font-weight: 600; font-size: 15px; letter-spacing: -0.1px; }
-.raven-card .card-subtitle, .card-subtitle, .page-subtitle, .dim, .dim-label {
-  color: alpha(@window_fg_color, 0.55);
+.raven-card .card-subtitle, .card-subtitle, .page-subtitle, .dim, .dim-label, .dimmed {
+  color: alpha(@window_fg_color, 0.70);
 }
+.raven-card .card-subtitle, .card-subtitle { font-size: 13px; }
 .status-card { padding: 10px 12px; border-radius: 12px; }
 button.status-card { padding: 10px 12px; }
 button.status-card:hover { background-color: alpha(#ffffff, 0.09); }
@@ -166,9 +182,9 @@ button.status-card:hover { background-color: alpha(#ffffff, 0.09); }
 .section-title { font-size: 15px; font-weight: 600; letter-spacing: -0.1px; }
 .page-title { font-size: 26px; font-weight: 700; letter-spacing: -0.6px; color: @window_fg_color; }
 .page-subtitle { font-size: 13.5px; }
-.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: alpha(@window_fg_color, 0.55); }
-.note { color: alpha(@window_fg_color, 0.55); font-size: 12px; }
-.mono { font-family: monospace; font-size: 12px; }
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: alpha(@window_fg_color, 0.70); }
+.note { color: alpha(@window_fg_color, 0.70); font-size: 12.5px; letter-spacing: 0.1px; }
+.mono { font-family: monospace; font-size: 12.5px; }
 .property { font-size: 13px; }
 
 /* Inset grouped list — the macOS settings list. Rows are flat, a hairline
@@ -191,7 +207,7 @@ list.boxed-list > row:last-child { border-bottom: none; border-bottom-left-radiu
 list.boxed-list > row:hover { background-color: alpha(#ffffff, 0.035); }
 list.boxed-list > row.activatable:active { background-color: alpha(#ffffff, 0.08); }
 list.boxed-list > row .title { font-size: 13.5px; font-weight: 500; }
-list.boxed-list > row .subtitle { font-size: 12px; color: alpha(@window_fg_color, 0.55); }
+list.boxed-list > row .subtitle { font-size: 12.5px; letter-spacing: 0.1px; color: alpha(@window_fg_color, 0.70); }
 row.expander list { background-color: transparent; }
 .data-row { padding: 12px 2px; border-bottom: 1px solid alpha(#ffffff, 0.07); }
 .data-row:last-child { border-bottom: none; }
@@ -251,8 +267,8 @@ entry:focus-within, .search-box:focus-within {
   border-color: alpha(@accent_bg_color, 0.65);
   box-shadow: 0 0 0 3px alpha(@accent_bg_color, 0.20);
 }
-entry image { color: alpha(@window_fg_color, 0.55); }
-entry placeholder, entry > placeholder, entry text > placeholder { color: alpha(@window_fg_color, 0.40); }
+entry image { color: alpha(@window_fg_color, 0.60); }
+entry placeholder, entry > placeholder, entry text > placeholder { color: alpha(@window_fg_color, 0.48); }
 dropdown > button { padding: 0 8px 0 12px; }
 popover > arrow, popover > contents {
   background-color: @popover_bg_color;
@@ -368,7 +384,7 @@ toast {
 toast button { border-radius: 999px; }
 statuspage .icon { color: alpha(@window_fg_color, 0.30); }
 statuspage .title { font-weight: 700; letter-spacing: -0.4px; }
-statuspage .description { color: alpha(@window_fg_color, 0.55); }
+statuspage .description { color: alpha(@window_fg_color, 0.70); }
 
 dialog, window.dialog, window.messagedialog, .dialog-content {
   background-color: @dialog_bg_color;
@@ -382,7 +398,7 @@ tooltip {
   box-shadow: 0 6px 20px alpha(#000000, 0.40);
   padding: 4px 8px;
 }
-tooltip label { color: @window_fg_color; font-size: 12px; }
+tooltip label { color: @window_fg_color; font-size: 12.5px; }
 
 /* Overlay scrollbars, thin and quiet. */
 scrollbar { background: transparent; border: none; }

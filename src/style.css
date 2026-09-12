@@ -20,7 +20,7 @@
 .eyebrow, .green-label { color: @accent_bg_color; }
 .green-label { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; }
 .row-title, .stat-value { font-weight: 600; }
-.dim-label { font-size: 12px; }
+.dim-label { font-size: 12.5px; letter-spacing: 0.1px; }
 
 .metric-card { min-height: 110px; }
 .metric-value { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }

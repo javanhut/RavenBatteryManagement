@@ -23,7 +23,7 @@
 @define-color borders alpha(#000000, 0.09);
 @define-color shade_color alpha(#000000, 0.10);
 
-window.raven.glass { background-color: alpha(#f2f2f7, 0.80); }
+window.raven.glass { background-color: alpha(#f2f2f7, 0.88); }
 window.raven.glass .sidebar { background-color: alpha(#ffffff, 0.30); }
 headerbar { border-bottom-color: alpha(#000000, 0.07); }
 .sidebar { border-right-color: alpha(#000000, 0.07); }
