@@ -5,7 +5,17 @@ libadwaita. There is no JavaScript or embedded browser runtime.
 
 ## Features
 
-- Live battery telemetry from `/sys/class/power_supply`
+- Live battery telemetry from `/sys/class/power_supply`, refreshed every
+  20 seconds, with the adapter state telling on-battery, charging, and
+  plugged-in apart
+- Runtime and time-to-full estimates from the drain actually observed this
+  session (age-weighted, so a sustained change in draw is adopted within
+  minutes), shaped by the drain measured at each 10% band on earlier sessions
+- A battery history page: charge over time with the projection ahead,
+  drain by charge level, and every past prediction scored against what the
+  battery went on to do
+- One sample a minute while the app is open, kept for 30 days in
+  `$XDG_DATA_HOME/raven-power/history.jsonl`
 - Linux power-profile switching through `powerprofilesctl`
 - Application Eco mode using lower CPU scheduling priority
 - Process resource diagnostics from `/proc`

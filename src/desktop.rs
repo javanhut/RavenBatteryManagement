@@ -81,7 +81,10 @@ mod tests {
     fn a_bad_accent_falls_back() {
         let d: Desktop = toml::from_str("[appearance]\naccent = \"red\"\n").unwrap();
         assert_eq!(d.accent(), DEFAULT_ACCENT);
-        let d: Desktop = toml::from_str("[appearance]\naccent = \"#F7768E\"\ntheme_mode = \"light\"\ntransparency = false\n").unwrap();
+        let d: Desktop = toml::from_str(
+            "[appearance]\naccent = \"#F7768E\"\ntheme_mode = \"light\"\ntransparency = false\n",
+        )
+        .unwrap();
         assert_eq!(d.accent(), "#F7768E");
         assert_eq!(d.appearance.theme_mode, ThemeMode::Light);
         assert!(!d.appearance.transparency);

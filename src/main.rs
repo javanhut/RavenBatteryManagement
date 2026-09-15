@@ -1,12 +1,70 @@
+mod chart;
 mod desktop;
+mod history;
+mod monitor;
 mod power;
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use power::{BatteryInfo, Settings};
-use std::{cell::RefCell, rc::Rc};
+use history::duration_text;
+use monitor::Monitor;
+use power::{PowerState, Settings};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    time::Duration,
+};
 
 const APP_ID: &str = "org.raven.Power";
+
+/// How often the window re-reads the battery. Samples are only kept once a
+/// minute, so this is the latency of the labels, not the size of the history.
+const REFRESH: Duration = Duration::from_secs(20);
+
+/// The chart windows the history page offers, in seconds.
+const RANGES: [(&str, u64); 4] = [
+    ("Last 3 hours", 3 * 3600),
+    ("Last 12 hours", 12 * 3600),
+    ("Last 24 hours", 24 * 3600),
+    ("Last 7 days", 7 * 24 * 3600),
+];
+
+/// One widget's reaction to a fresh reading.
+type Updater = Box<dyn Fn(&Monitor)>;
+
+/// Everything that follows the monitor: a closure per widget, run after
+/// every refresh with the fresh state.
+#[derive(Default)]
+struct Live {
+    updaters: RefCell<Vec<Updater>>,
+}
+
+impl Live {
+    fn bind(&self, update: impl Fn(&Monitor) + 'static) {
+        self.updaters.borrow_mut().push(Box::new(update));
+    }
+
+    fn label(&self, label: &gtk::Label, text: impl Fn(&Monitor) -> String + 'static) {
+        let label = label.clone();
+        self.bind(move |m| label.set_text(&text(m)));
+    }
+
+    fn visible(&self, widget: &impl IsA<gtk::Widget>, shown: impl Fn(&Monitor) -> bool + 'static) {
+        let widget = widget.clone();
+        self.bind(move |m| widget.set_visible(shown(m)));
+    }
+
+    fn redraw(&self, area: &gtk::DrawingArea) {
+        let area = area.clone();
+        self.bind(move |_| area.queue_draw());
+    }
+
+    fn run(&self, monitor: &Monitor) {
+        for update in self.updaters.borrow().iter() {
+            update(monitor);
+        }
+    }
+}
 
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -55,9 +113,8 @@ fn load_css() {
         desktop::ThemeMode::Auto => adw::ColorScheme::PreferDark,
     });
     let accent = desktop.accent();
-    let mut css = format!(
-        "@define-color accent_bg_color {accent};\n@define-color accent_color {accent};\n"
-    );
+    let mut css =
+        format!("@define-color accent_bg_color {accent};\n@define-color accent_color {accent};\n");
     if look.theme_mode == desktop::ThemeMode::Light {
         css.push_str(include_str!("raven-glass-light.css"));
     }
@@ -80,6 +137,9 @@ fn build_ui(app: &adw::Application) {
         stored_settings.profile = system_profile;
     }
     let settings = Rc::new(RefCell::new(stored_settings));
+    let monitor = Rc::new(RefCell::new(Monitor::start()));
+    let live = Rc::new(Live::default());
+    let accent = chart::Rgb::from_hex(desktop::Desktop::load().accent());
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("Raven Power")
@@ -99,10 +159,10 @@ fn build_ui(app: &adw::Application) {
     // The Raven mark, as /etc/os-release names it; the battery glyph only on
     // a system that has not installed the logo.
     let brand_icon = gtk::Image::from_icon_name("battery-good-symbolic");
-    if let Some(display) = gtk::gdk::Display::default() {
-        if gtk::IconTheme::for_display(&display).has_icon("raven-logo") {
-            brand_icon.set_icon_name(Some("raven-logo"));
-        }
+    if let Some(display) = gtk::gdk::Display::default()
+        && gtk::IconTheme::for_display(&display).has_icon("raven-logo")
+    {
+        brand_icon.set_icon_name(Some("raven-logo"));
     }
     brand.append(&brand_icon);
     let brand_text = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -125,33 +185,45 @@ fn build_ui(app: &adw::Application) {
     // never the accent, so the sidebar reads the same under any accent.
     let pages = [
         ("view-grid-symbolic", "Overview", "green"),
-        ("utilities-system-monitor-symbolic", "Energy usage", "orange"),
+        (
+            "utilities-system-monitor-symbolic",
+            "Energy usage",
+            "orange",
+        ),
         ("power-profile-balanced-symbolic", "Power profiles", "blue"),
-        ("application-x-executable-symbolic", "Applications", "purple"),
+        (
+            "application-x-executable-symbolic",
+            "Applications",
+            "purple",
+        ),
         ("battery-good-symbolic", "Battery health", "red"),
+        ("document-open-recent-symbolic", "Battery history", "teal"),
     ];
     for (icon, label, tint) in pages {
         navigation.append(&nav_row(icon, label, tint));
     }
     sidebar.append(&navigation);
 
-    let battery = BatteryInfo::read();
     let sidebar_status = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     sidebar_status.add_css_class("raven-card");
     sidebar_status.add_css_class("status-card");
     sidebar_status.append(&gtk::Image::from_icon_name("battery-good-symbolic"));
     let sidebar_status_text = gtk::Box::new(gtk::Orientation::Vertical, 1);
-    let status_title = gtk::Label::new(Some(&format!("{}% remaining", battery.percent)));
+    let status_title = gtk::Label::new(None);
     status_title.set_xalign(0.0);
     status_title.add_css_class("card-title");
+    live.label(&status_title, |m| format!("{}% charged", m.battery.percent));
     sidebar_status_text.append(&status_title);
-    let status_subtitle = gtk::Label::new(Some(&format!(
-        "{} · {}",
-        battery.status,
-        battery.remaining_text()
-    )));
+    let status_subtitle = gtk::Label::new(None);
     status_subtitle.set_xalign(0.0);
     status_subtitle.add_css_class("dim");
+    live.label(&status_subtitle, |m| {
+        format!(
+            "{} · {}",
+            m.estimate.state.label(),
+            m.estimate.short(&m.battery)
+        )
+    });
     sidebar_status_text.append(&status_subtitle);
     sidebar_status.append(&sidebar_status_text);
     sidebar.append(&sidebar_status);
@@ -162,10 +234,10 @@ fn build_ui(app: &adw::Application) {
         .transition_type(gtk::StackTransitionType::Crossfade)
         .build();
     stack.add_named(
-        &overview_page(settings.clone(), &toast_overlay),
+        &overview_page(settings.clone(), &toast_overlay, &live),
         Some("overview"),
     );
-    stack.add_named(&usage_page(), Some("usage"));
+    stack.add_named(&usage_page(&live), Some("usage"));
     stack.add_named(
         &profiles_page(settings.clone(), &toast_overlay),
         Some("profiles"),
@@ -177,6 +249,10 @@ fn build_ui(app: &adw::Application) {
     stack.add_named(
         &health_page(settings.clone(), &toast_overlay),
         Some("health"),
+    );
+    stack.add_named(
+        &history_page(monitor.clone(), &live, accent),
+        Some("history"),
     );
     let title = adw::WindowTitle::new("Power overview", "Live battery status and power controls");
     navigation.connect_row_selected(glib::clone!(
@@ -213,6 +289,11 @@ fn build_ui(app: &adw::Application) {
                     "health",
                     "Battery health",
                     "Capacity, charging, and long-term battery care",
+                ),
+                (
+                    "history",
+                    "Battery history",
+                    "Charge over time, drain by level, and how the estimates held up",
                 ),
             ];
             if let Some((page, heading, subtitle)) = data.get(row.index() as usize) {
@@ -290,6 +371,19 @@ fn build_ui(app: &adw::Application) {
     window.set_size_request(480, 360);
     window.set_default_size(1080, 700);
     window.present();
+
+    // First paint from the reading taken at startup, then a fresh reading
+    // every REFRESH for as long as this window lives.
+    live.run(&monitor.borrow());
+    let weak_window = window.downgrade();
+    glib::timeout_add_local(REFRESH, move || {
+        if weak_window.upgrade().is_none() {
+            return glib::ControlFlow::Break;
+        }
+        monitor.borrow_mut().refresh();
+        live.run(&monitor.borrow());
+        glib::ControlFlow::Continue
+    });
 }
 
 fn nav_row(icon: &str, label: &str, tint: &str) -> gtk::ListBoxRow {
@@ -323,84 +417,116 @@ fn page_scroll(content: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
 fn overview_page(
     settings: Rc<RefCell<Settings>>,
     toasts: &adw::ToastOverlay,
+    live: &Live,
 ) -> gtk::ScrolledWindow {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("page");
-    let battery = BatteryInfo::read();
     let hero = gtk::Box::new(gtk::Orientation::Horizontal, 28);
     hero.add_css_class("card");
     hero.add_css_class("hero");
     let gauge = gtk::Box::new(gtk::Orientation::Vertical, 0);
     gauge.add_css_class("battery-gauge");
-    let percent = gtk::Label::new(Some(&format!("{}%", battery.percent)));
+    let percent = gtk::Label::new(None);
     percent.add_css_class("battery-percent");
+    live.label(&percent, |m| format!("{}%", m.battery.percent));
     gauge.append(&percent);
-    gauge.append(&gtk::Label::new(Some("remaining")));
+    let gauge_caption = gtk::Label::new(None);
+    live.label(&gauge_caption, |m| {
+        match m.estimate.state {
+            PowerState::OnBattery => "remaining",
+            PowerState::Charging => "charging",
+            PowerState::PluggedIn => "plugged in",
+        }
+        .into()
+    });
+    gauge.append(&gauge_caption);
     hero.append(&gauge);
     let summary = gtk::Box::new(gtk::Orientation::Vertical, 6);
     summary.set_hexpand(true);
-    let live = gtk::Label::new(Some(if battery.is_real {
-        "●  LIVE SYSTEM ESTIMATE"
-    } else {
-        "●  DEMO DATA — NO BATTERY FOUND"
-    }));
-    live.set_xalign(0.0);
-    live.add_css_class("eyebrow");
-    summary.append(&live);
-    let estimate = gtk::Label::new(Some(&format!("{} left", battery.remaining_text())));
+    let eyebrow = gtk::Label::new(None);
+    eyebrow.set_xalign(0.0);
+    eyebrow.add_css_class("eyebrow");
+    live.label(&eyebrow, |m| {
+        if m.battery.is_real {
+            "●  LIVE SYSTEM ESTIMATE"
+        } else {
+            "●  DEMO DATA — NO BATTERY FOUND"
+        }
+        .into()
+    });
+    summary.append(&eyebrow);
+    let estimate = gtk::Label::new(None);
     estimate.set_xalign(0.0);
     estimate.add_css_class("hero-title");
+    live.label(&estimate, |m| m.estimate.headline(&m.battery));
     summary.append(&estimate);
-    let status = gtk::Label::new(Some(&format!(
-        "{} · {:.1} W current draw · {} battery health",
-        battery.status,
-        battery.power_watts,
-        battery.health_percent()
-    )));
+    let status = gtk::Label::new(None);
     status.set_xalign(0.0);
     status.add_css_class("dim-label");
+    live.label(&status, |m| {
+        format!(
+            "{} · {} · {}% battery health",
+            m.estimate.state.label(),
+            power_text(m),
+            m.battery.health_percent()
+        )
+    });
     summary.append(&status);
+    let basis = gtk::Label::new(None);
+    basis.set_xalign(0.0);
+    basis.set_wrap(true);
+    basis.add_css_class("dim-label");
+    live.label(&basis, basis_text);
+    summary.append(&basis);
     let stats = gtk::Box::new(gtk::Orientation::Horizontal, 36);
     stats.set_margin_top(18);
-    stats.append(&stat(
-        "Current draw",
-        &format!("{:.1} W", battery.power_watts),
-    ));
-    stats.append(&stat(
-        "Battery health",
-        &format!("{}% · Excellent", battery.health_percent()),
-    ));
-    stats.append(&stat(
-        "Temperature",
-        &battery
+    let (draw, draw_value) = stat("Power");
+    live.label(&draw_value, power_text);
+    stats.append(&draw);
+    let (health, health_value) = stat("Battery health");
+    live.label(&health_value, |m| {
+        let health = m.battery.health_percent();
+        format!(
+            "{health}% · {}",
+            if health > 85 { "Excellent" } else { "Worn" }
+        )
+    });
+    stats.append(&health);
+    let (temperature, temperature_value) = stat("Temperature");
+    live.label(&temperature_value, |m| {
+        m.battery
             .temperature_c
             .map(|v| format!("{v:.0}°C · Normal"))
-            .unwrap_or_else(|| "Unavailable".into()),
-    ));
+            .unwrap_or_else(|| "Unavailable".into())
+    });
+    stats.append(&temperature);
     summary.append(&stats);
     hero.append(&summary);
     page.append(&hero);
 
-    if battery.power_watts > 12.0 || !battery.is_real {
-        let alert = gtk::Box::new(gtk::Orientation::Horizontal, 14);
-        alert.add_css_class("alert-card");
-        let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
-        icon.add_css_class("alert-icon");
-        alert.append(&icon);
-        let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        let heading = gtk::Label::new(Some("Battery drain is higher than expected"));
-        heading.set_xalign(0.0);
-        heading.add_css_class("card-title");
-        text.append(&heading);
-        let body = gtk::Label::new(Some(
-            "Review active applications and display brightness to recover runtime.",
-        ));
-        body.set_xalign(0.0);
-        body.add_css_class("dim-label");
-        text.append(&body);
-        alert.append(&text);
-        page.append(&alert);
-    }
+    let alert = gtk::Box::new(gtk::Orientation::Horizontal, 14);
+    alert.add_css_class("alert-card");
+    let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+    icon.add_css_class("alert-icon");
+    alert.append(&icon);
+    let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    let heading = gtk::Label::new(Some("Battery drain is higher than expected"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("card-title");
+    text.append(&heading);
+    let body = gtk::Label::new(Some(
+        "Review active applications and display brightness to recover runtime.",
+    ));
+    body.set_xalign(0.0);
+    body.add_css_class("dim-label");
+    text.append(&body);
+    alert.append(&text);
+    // Only a drain can be too high; the adapter carrying 30 W is not one.
+    live.visible(&alert, |m| {
+        m.estimate.state == PowerState::OnBattery
+            && (m.battery.power_watts > 12.0 || !m.battery.is_real)
+    });
+    page.append(&alert);
     let heading = section_title(
         "Choose your power mode",
         "Raven applies profiles through raven-powerd or the Linux power-profile service.",
@@ -480,32 +606,38 @@ fn overview_page(
     page_scroll(&page)
 }
 
-fn usage_page() -> gtk::ScrolledWindow {
+fn usage_page(live: &Live) -> gtk::ScrolledWindow {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 16);
     page.add_css_class("page");
-    let battery = BatteryInfo::read();
     let metrics = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     metrics.set_homogeneous(true);
-    metrics.append(&metric(
-        "Discharge rate",
-        &format!("{:.1} W", battery.power_watts),
-        "Live from the battery controller",
-    ));
-    metrics.append(&metric(
-        "Battery remaining",
-        &format!("{}%", battery.percent),
-        &battery.remaining_text(),
-    ));
-    metrics.append(&metric(
-        "Full capacity",
-        &format!("{:.1} Wh", battery.energy_full_wh),
-        "Measured maximum charge",
-    ));
-    metrics.append(&metric(
-        "Battery status",
-        &battery.status,
-        &battery.battery_name,
-    ));
+    let (rate, rate_value, rate_detail) = metric("Power");
+    live.label(&rate_value, power_text);
+    live.label(&rate_detail, |m| {
+        match m.estimate.state {
+            PowerState::OnBattery => "Drawn from the battery right now",
+            PowerState::Charging => "Flowing into the battery right now",
+            PowerState::PluggedIn => "The adapter is carrying the load",
+        }
+        .into()
+    });
+    metrics.append(&rate);
+    let (remaining, remaining_value, remaining_detail) = metric("Battery remaining");
+    live.label(&remaining_value, |m| format!("{}%", m.battery.percent));
+    live.label(&remaining_detail, |m| m.estimate.short(&m.battery));
+    metrics.append(&remaining);
+    let (capacity, capacity_value, capacity_detail) = metric("Full capacity");
+    live.label(&capacity_value, |m| {
+        format!("{:.1} Wh", m.battery.energy_full_wh)
+    });
+    capacity_detail.set_text("Measured maximum charge");
+    metrics.append(&capacity);
+    let (status, status_value, status_detail) = metric("Battery status");
+    live.label(&status_value, |m| m.estimate.state.label().into());
+    live.label(&status_detail, |m| {
+        format!("{} · {}", m.battery.status, m.battery.battery_name)
+    });
+    metrics.append(&status);
     page.append(&metrics);
     let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
     card.add_css_class("card");
@@ -659,7 +791,7 @@ fn applications_page(
 fn health_page(settings: Rc<RefCell<Settings>>, toasts: &adw::ToastOverlay) -> gtk::ScrolledWindow {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 16);
     page.add_css_class("page");
-    let b = BatteryInfo::read();
+    let b = power::BatteryInfo::read();
     let hero = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     hero.add_css_class("card");
     hero.add_css_class("hero");
@@ -736,30 +868,278 @@ fn section_title(title: &str, subtitle: &str) -> gtk::Box {
     b.append(&s);
     b
 }
-fn stat(label: &str, value: &str) -> gtk::Box {
+/// A caption over a value; the value label comes back for live binding.
+fn stat(label: &str) -> (gtk::Box, gtk::Label) {
     let b = gtk::Box::new(gtk::Orientation::Vertical, 2);
     let l = gtk::Label::new(Some(label));
     l.set_xalign(0.0);
     l.add_css_class("dim-label");
     b.append(&l);
-    let v = gtk::Label::new(Some(value));
+    let v = gtk::Label::new(None);
     v.set_xalign(0.0);
     v.add_css_class("stat-value");
     b.append(&v);
-    b
+    (b, v)
 }
-fn metric(label: &str, value: &str, detail: &str) -> gtk::Box {
+/// A metric card; the value and detail labels come back for live binding.
+fn metric(label: &str) -> (gtk::Box, gtk::Label, gtk::Label) {
     let b = gtk::Box::new(gtk::Orientation::Vertical, 5);
     b.add_css_class("metric-card");
     b.append(&gtk::Label::new(Some(label)));
-    let v = gtk::Label::new(Some(value));
+    let v = gtk::Label::new(None);
     v.add_css_class("metric-value");
     b.append(&v);
-    let d = gtk::Label::new(Some(detail));
+    let d = gtk::Label::new(None);
     d.add_css_class("dim-label");
     d.set_wrap(true);
+    d.set_justify(gtk::Justification::Center);
     b.append(&d);
-    b
+    (b, v, d)
+}
+
+/// "10.6 W draw", "28.0 W in", or "0 W · on adapter".
+fn power_text(m: &Monitor) -> String {
+    match m.estimate.state {
+        PowerState::OnBattery => format!("{:.1} W draw", m.battery.power_watts),
+        PowerState::Charging => format!("{:.1} W in", m.battery.power_watts),
+        PowerState::PluggedIn => "0 W · on adapter".into(),
+    }
+}
+
+/// The line under the headline that says where the estimate came from.
+fn basis_text(m: &Monitor) -> String {
+    let e = &m.estimate;
+    if e.state == PowerState::PluggedIn {
+        return "The battery is not being drawn on.".into();
+    }
+    let naive = e
+        .instant_minutes
+        .map(|i| format!(" A naive meter would say {}.", duration_text(i)))
+        .unwrap_or_default();
+    match e.observed_pct_hr {
+        Some(rate) => format!(
+            "From {rate:.1}%/h observed over the last {}{}.{naive}",
+            duration_text(e.observed_minutes.max(1)),
+            if e.basis == history::Basis::Learned {
+                ", shaped by earlier sessions"
+            } else {
+                ""
+            }
+        ),
+        None => "From this instant's power reading only. It steadies after a few minutes.".into(),
+    }
+}
+
+fn history_page(
+    monitor: Rc<RefCell<Monitor>>,
+    live: &Live,
+    accent: chart::Rgb,
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    page.add_css_class("page");
+
+    let metrics = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    metrics.set_homogeneous(true);
+    let (estimate, estimate_value, estimate_detail) = metric("Estimated");
+    live.label(&estimate_value, |m| m.estimate.short(&m.battery));
+    live.label(&estimate_detail, |m| m.estimate.basis_text().into());
+    metrics.append(&estimate);
+    let (observed, observed_value, observed_detail) = metric("Observed drain");
+    live.label(&observed_value, |m| match m.estimate.observed_pct_hr {
+        Some(rate) => format!("{rate:.1}%/h"),
+        None => "—".into(),
+    });
+    live.label(&observed_detail, |m| {
+        match (m.estimate.state, m.estimate.observed_pct_hr) {
+            (PowerState::OnBattery, Some(rate)) => format!(
+                "{:.1} W over the last {}",
+                rate / 100.0 * m.battery.energy_full_wh,
+                duration_text(m.estimate.observed_minutes.max(1))
+            ),
+            (PowerState::Charging, Some(_)) => format!(
+                "Charging, over the last {}",
+                duration_text(m.estimate.observed_minutes.max(1))
+            ),
+            (PowerState::PluggedIn, _) => "Not on battery".into(),
+            (_, None) => "Needs a minute of samples".into(),
+        }
+    });
+    metrics.append(&observed);
+    let (instant, instant_value, instant_detail) = metric("Instant reading");
+    live.label(&instant_value, |m| {
+        m.estimate
+            .instant_minutes
+            .map(duration_text)
+            .unwrap_or_else(|| "—".into())
+    });
+    live.label(&instant_detail, |m| {
+        format!("{} · what a naive meter shows", power_text(m))
+    });
+    metrics.append(&instant);
+    let (accuracy, accuracy_value, accuracy_detail) = metric("Estimate accuracy");
+    live.label(&accuracy_value, |m| {
+        match m.history.accuracy(m.now.saturating_sub(7 * 24 * 3600)) {
+            Some(a) => format!("±{:.0} min", a.model_error_min),
+            None => "—".into(),
+        }
+    });
+    live.label(&accuracy_detail, |m| {
+        match m.history.accuracy(m.now.saturating_sub(7 * 24 * 3600)) {
+            Some(a) => {
+                let instant = a
+                    .instant_error_min
+                    .map(|e| format!(" · naive ±{e:.0} min"))
+                    .unwrap_or_default();
+                format!(
+                    "{} scored this week · {:.0}% within 10%{instant}",
+                    a.checkpoints,
+                    a.within_ten_percent * 100.0
+                )
+            }
+            None => "Nothing scored yet".into(),
+        }
+    });
+    metrics.append(&accuracy);
+    page.append(&metrics);
+
+    let range = Rc::new(Cell::new(RANGES[0].1));
+    let charge_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    charge_card.add_css_class("card");
+    let charge_header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let charge_title = section_title(
+        "Charge over time",
+        "One sample a minute while Raven Power is open. The dotted line is the model's projection from now.",
+    );
+    charge_title.set_hexpand(true);
+    charge_header.append(&charge_title);
+    let names: Vec<&str> = RANGES.iter().map(|(name, _)| *name).collect();
+    let picker = gtk::DropDown::from_strings(&names);
+    picker.set_valign(gtk::Align::Start);
+    charge_header.append(&picker);
+    charge_card.append(&charge_header);
+    let legend = gtk::Box::new(gtk::Orientation::Horizontal, 18);
+    for (class, name) in [
+        ("legend-battery", "●  On battery"),
+        ("legend-charge", "●  Charging"),
+        ("legend-plugged", "●  Plugged in"),
+    ] {
+        let item = gtk::Label::new(Some(name));
+        item.add_css_class("dim-label");
+        item.add_css_class(class);
+        legend.append(&item);
+    }
+    charge_card.append(&legend);
+    let charge = chart::charge_chart(monitor.clone(), range.clone(), accent);
+    live.redraw(&charge);
+    charge_card.append(&charge);
+    page.append(&charge_card);
+
+    let band_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    band_card.add_css_class("card");
+    band_card.append(&section_title(
+        "Drain by charge level",
+        "Percent per hour measured in each band across every session on battery, weighted by time. Cells drain faster in percent terms as they empty, and the model uses this curve to shape the estimate below the current level. The bright bar is the band being crossed now.",
+    ));
+    let bands = chart::band_chart(monitor.clone(), accent);
+    live.redraw(&bands);
+    band_card.append(&bands);
+    page.append(&band_card);
+
+    let accuracy_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    accuracy_card.add_css_class("card");
+    accuracy_card.append(&section_title(
+        "How past estimates held up",
+        "Every prediction is kept and scored once the session has run on: the realized line is the time the rest of the charge really took at the drain that followed. The closer the predicted line hugs it, the better.",
+    ));
+    let scores = chart::accuracy_chart(monitor.clone(), range.clone(), accent);
+    live.redraw(&scores);
+    accuracy_card.append(&scores);
+    let checkpoints = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    live.bind(glib::clone!(
+        #[weak]
+        checkpoints,
+        move |m| {
+            while let Some(child) = checkpoints.first_child() {
+                checkpoints.remove(&child);
+            }
+            // The latest few, at least twenty minutes apart, newest first.
+            let mut shown: Vec<history::Checkpoint> = Vec::new();
+            for point in m.history.checkpoints().into_iter().rev() {
+                if shown
+                    .last()
+                    .is_none_or(|last| last.t.saturating_sub(point.t) >= 20 * 60)
+                {
+                    shown.push(point);
+                }
+                if shown.len() == 6 {
+                    break;
+                }
+            }
+            for point in shown {
+                checkpoints.append(&checkpoint_row(&point));
+            }
+        }
+    ));
+    accuracy_card.append(&checkpoints);
+    page.append(&accuracy_card);
+
+    let note = gtk::Label::new(Some(
+        "History is recorded only while Raven Power is open and is kept for 30 days in ~/.local/share/raven-power/history.jsonl. The Refresh button reloads it.",
+    ));
+    note.set_wrap(true);
+    note.set_xalign(0.0);
+    note.add_css_class("info-note");
+    page.append(&note);
+
+    picker.connect_selected_notify(move |picker| {
+        if let Some((_, seconds)) = RANGES.get(picker.selected() as usize) {
+            range.set(*seconds);
+            charge.queue_draw();
+            scores.queue_draw();
+        }
+    });
+    page_scroll(&page)
+}
+
+fn checkpoint_row(point: &history::Checkpoint) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    row.add_css_class("data-row");
+    let when = glib::DateTime::from_unix_local(point.t as i64)
+        .ok()
+        .and_then(|d| d.format("%a %H:%M").ok())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let verb = match point.state {
+        PowerState::Charging => "to full",
+        _ => "left",
+    };
+    let title = gtk::Label::new(Some(&format!("{when} at {}%", point.percent)));
+    title.set_xalign(0.0);
+    title.add_css_class("row-title");
+    title.set_size_request(130, -1);
+    row.append(&title);
+    let detail = gtk::Label::new(Some(&format!(
+        "Predicted {} {verb} · really {}",
+        duration_text(point.predicted_min),
+        duration_text(point.realized_min)
+    )));
+    detail.set_xalign(0.0);
+    detail.set_hexpand(true);
+    detail.add_css_class("dim-label");
+    row.append(&detail);
+    let error = point.error_min();
+    let off = duration_text(error.unsigned_abs() as u32);
+    let verdict = gtk::Label::new(Some(&if error.unsigned_abs() < 3 {
+        "spot on".to_string()
+    } else if error > 0 {
+        format!("{off} too optimistic")
+    } else {
+        format!("{off} too cautious")
+    }));
+    let within = error.unsigned_abs() as f64 <= 0.10 * point.realized_min.max(1) as f64;
+    verdict.add_css_class(if within { "green-label" } else { "dim-label" });
+    row.append(&verdict);
+    row
 }
 fn profile_card(name: &str, icon: &str, desc: &str, detail: &str, active: bool) -> gtk::Box {
     let b = gtk::Box::new(gtk::Orientation::Vertical, 8);

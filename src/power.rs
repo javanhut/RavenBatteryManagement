@@ -9,10 +9,31 @@ use std::{
     time::Duration,
 };
 
+/// Whether the machine is drawing from the battery, filling it, or sitting
+/// on the adapter with the battery full (or held at a charge limit).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PowerState {
+    OnBattery,
+    Charging,
+    PluggedIn,
+}
+
+impl PowerState {
+    pub fn label(self) -> &'static str {
+        match self {
+            PowerState::OnBattery => "On battery",
+            PowerState::Charging => "Charging",
+            PowerState::PluggedIn => "Plugged in",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BatteryInfo {
     pub percent: u8,
     pub status: String,
+    /// `Some(true)` when a mains or USB supply reports itself online.
+    pub ac_online: Option<bool>,
     pub power_watts: f64,
     pub energy_now_wh: f64,
     pub energy_full_wh: f64,
@@ -28,6 +49,7 @@ impl Default for BatteryInfo {
         Self {
             percent: 90,
             status: "Discharging".into(),
+            ac_online: Some(false),
             power_watts: 8.4,
             energy_now_wh: 60.5,
             energy_full_wh: 67.2,
@@ -56,26 +78,71 @@ impl BatteryInfo {
             .clamp(0.0, 100.0) as u8
     }
 
-    pub fn remaining_text(&self) -> String {
-        if self.status.eq_ignore_ascii_case("charging") {
-            return "Charging".into();
+    /// The kernel's `status` first; the adapter decides the ambiguous cases.
+    /// "Not charging" and "Full" both mean the adapter is carrying the
+    /// load, whether the battery is at 100% or held at a charge limit.
+    pub fn state(&self) -> PowerState {
+        match self.status.to_ascii_lowercase().as_str() {
+            "charging" => PowerState::Charging,
+            "discharging" => PowerState::OnBattery,
+            "full" | "not charging" => PowerState::PluggedIn,
+            _ => match self.ac_online {
+                Some(true) => PowerState::PluggedIn,
+                Some(false) => PowerState::OnBattery,
+                None if self.power_watts > 0.1 => PowerState::OnBattery,
+                None => PowerState::PluggedIn,
+            },
         }
+    }
+
+    /// Minutes to empty (on battery) or to full (charging) from nothing but
+    /// this instant's power reading, the way a naive meter would show it.
+    pub fn instant_minutes(&self) -> Option<u32> {
         if self.power_watts <= 0.1 {
-            return "Calculating…".into();
+            return None;
         }
-        let minutes = (self.energy_now_wh / self.power_watts * 60.0).round() as u32;
-        format!("{} hr {:02} min", minutes / 60, minutes % 60)
+        let energy = match self.state() {
+            PowerState::OnBattery if self.energy_now_wh > 0.0 => self.energy_now_wh,
+            PowerState::Charging if self.energy_full_wh > self.energy_now_wh => {
+                self.energy_full_wh - self.energy_now_wh
+            }
+            _ => return None,
+        };
+        Some((energy / self.power_watts * 60.0).round() as u32)
     }
 }
 
-fn find_battery() -> Option<PathBuf> {
+fn supplies_of_type(wanted: &[&str]) -> Vec<PathBuf> {
     fs::read_dir("/sys/class/power_supply")
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .find(|path| {
-            read_text(path.join("type")).is_some_and(|value| value.eq_ignore_ascii_case("battery"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|path| {
+                    read_text(path.join("type"))
+                        .is_some_and(|value| wanted.iter().any(|w| value.eq_ignore_ascii_case(w)))
+                })
+                .collect()
         })
+        .unwrap_or_default()
+}
+
+fn find_battery() -> Option<PathBuf> {
+    supplies_of_type(&["Battery"]).into_iter().next()
+}
+
+/// `Some(true)` when any mains or USB supply says it is online, `Some(false)`
+/// when they all say they are not, `None` when the kernel exposes none.
+fn adapter_online() -> Option<bool> {
+    let states: Vec<bool> = supplies_of_type(&["Mains", "USB", "USB_PD", "USB_C"])
+        .into_iter()
+        .filter_map(|path| read_num(path.join("online")).map(|v| v != 0))
+        .collect();
+    if states.is_empty() {
+        None
+    } else {
+        Some(states.iter().any(|online| *online))
+    }
 }
 
 fn read_battery(path: &Path) -> Option<BatteryInfo> {
@@ -95,6 +162,7 @@ fn read_battery(path: &Path) -> Option<BatteryInfo> {
     Some(BatteryInfo {
         percent,
         status: read_text(path.join("status")).unwrap_or_else(|| "Unknown".into()),
+        ac_online: adapter_online(),
         power_watts: power,
         energy_now_wh: energy_now,
         energy_full_wh: energy_full,
@@ -490,23 +558,56 @@ mod tests {
     }
 
     #[test]
-    fn estimates_remaining_runtime() {
+    fn instant_estimate_uses_the_energy_left() {
         let battery = BatteryInfo {
             status: "Discharging".into(),
             energy_now_wh: 36.0,
             power_watts: 8.0,
             ..Default::default()
         };
-        assert_eq!(battery.remaining_text(), "4 hr 30 min");
+        assert_eq!(battery.state(), PowerState::OnBattery);
+        assert_eq!(battery.instant_minutes(), Some(270));
     }
 
     #[test]
-    fn reports_charging_instead_of_a_runtime() {
+    fn instant_estimate_counts_to_full_while_charging() {
         let battery = BatteryInfo {
             status: "Charging".into(),
+            energy_now_wh: 40.0,
+            energy_full_wh: 70.0,
+            power_watts: 30.0,
             ..Default::default()
         };
-        assert_eq!(battery.remaining_text(), "Charging");
+        assert_eq!(battery.state(), PowerState::Charging);
+        assert_eq!(battery.instant_minutes(), Some(60));
+    }
+
+    #[test]
+    fn adapter_decides_ambiguous_statuses() {
+        let full = BatteryInfo {
+            status: "Full".into(),
+            ..Default::default()
+        };
+        assert_eq!(full.state(), PowerState::PluggedIn);
+        let held = BatteryInfo {
+            status: "Not charging".into(),
+            percent: 80,
+            ..Default::default()
+        };
+        assert_eq!(held.state(), PowerState::PluggedIn);
+        assert_eq!(held.instant_minutes(), None);
+        let unknown_on_ac = BatteryInfo {
+            status: "Unknown".into(),
+            ac_online: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(unknown_on_ac.state(), PowerState::PluggedIn);
+        let unknown_no_ac = BatteryInfo {
+            status: "Unknown".into(),
+            ac_online: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(unknown_no_ac.state(), PowerState::OnBattery);
     }
 
     #[test]
