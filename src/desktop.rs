@@ -43,9 +43,13 @@ pub struct Desktop {
 }
 
 impl Desktop {
+    /// Where Raven Settings keeps it; watched for live changes.
+    pub fn path() -> PathBuf {
+        config_dir().join("desktop.toml")
+    }
+
     pub fn load() -> Desktop {
-        let path = config_dir().join("desktop.toml");
-        std::fs::read_to_string(&path)
+        std::fs::read_to_string(Self::path())
             .ok()
             .and_then(|t| toml::from_str(&t).ok())
             .unwrap_or_default()

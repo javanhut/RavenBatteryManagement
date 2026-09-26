@@ -1,0 +1,5 @@
+/* Raven Power's own classes, light. Laid over raven-glass-light.css when the
+   desktop's theme mode is light; only what style.css draws for a dark
+   ground is restated. */
+.profile-card:hover { background-color: alpha(#ffffff, 0.95); }
+.battery-gauge { border-color: alpha(#000000, 0.08); }

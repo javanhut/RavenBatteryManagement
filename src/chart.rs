@@ -28,6 +28,28 @@ type Series<'a> = (
 #[derive(Clone, Copy)]
 pub struct Rgb(pub f64, pub f64, pub f64);
 
+thread_local! {
+    /// The desktop's accent, as last applied; read at draw time so a
+    /// change in Raven Settings reaches the charts without a restart.
+    static ACCENT: Cell<Rgb> = Cell::new(Rgb::from_hex(crate::desktop::DEFAULT_ACCENT));
+    /// Every chart drawn so far, to redraw when the accent changes.
+    static CHARTS: RefCell<Vec<glib::WeakRef<gtk::DrawingArea>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Draw with `accent` from now on, and redraw the charts already shown.
+pub fn set_accent(accent: Rgb) {
+    ACCENT.with(|a| a.set(accent));
+    CHARTS.with(|charts| {
+        charts.borrow_mut().retain(|weak| match weak.upgrade() {
+            Some(area) => {
+                area.queue_draw();
+                true
+            }
+            None => false,
+        });
+    });
+}
+
 impl Rgb {
     /// `#RRGGBB`; anything else is the Raven default blue.
     pub fn from_hex(hex: &str) -> Self {
@@ -54,11 +76,11 @@ pub struct Palette {
 }
 
 impl Palette {
-    fn from_widget(widget: &gtk::DrawingArea, accent: Rgb) -> Self {
+    fn from_widget(widget: &gtk::DrawingArea) -> Self {
         let fg = widget.color();
         Self {
             fg: Rgb(fg.red() as f64, fg.green() as f64, fg.blue() as f64),
-            accent,
+            accent: ACCENT.with(Cell::get),
             charge: Rgb(0.30, 0.78, 0.50),
         }
     }
@@ -203,6 +225,7 @@ fn area(height: i32) -> gtk::DrawingArea {
     area.set_content_height(height);
     area.set_hexpand(true);
     area.add_css_class("chart");
+    CHARTS.with(|charts| charts.borrow_mut().push(area.downgrade()));
     area
 }
 
@@ -211,12 +234,11 @@ fn area(height: i32) -> gtk::DrawingArea {
 pub fn charge_chart(
     monitor: Rc<RefCell<Monitor>>,
     range: Rc<Cell<u64>>,
-    accent: Rgb,
 ) -> gtk::DrawingArea {
     let area = area(240);
     area.set_draw_func(move |widget, cr, width, height| {
         prepare(cr);
-        let palette = Palette::from_widget(widget, accent);
+        let palette = Palette::from_widget(widget);
         let monitor = monitor.borrow();
         let now = monitor.now as f64;
         let range = range.get() as f64;
@@ -332,11 +354,11 @@ pub fn charge_chart(
 /// Drain, percent per hour, in each ten-percent band of charge as learnt
 /// from earlier sessions, with the band being crossed now highlighted and
 /// the rate observed this session ruled across.
-pub fn band_chart(monitor: Rc<RefCell<Monitor>>, accent: Rgb) -> gtk::DrawingArea {
+pub fn band_chart(monitor: Rc<RefCell<Monitor>>) -> gtk::DrawingArea {
     let area = area(200);
     area.set_draw_func(move |widget, cr, width, height| {
         prepare(cr);
-        let palette = Palette::from_widget(widget, accent);
+        let palette = Palette::from_widget(widget);
         let monitor = monitor.borrow();
         let rates = monitor.history.band_rates(PowerState::OnBattery);
         let observed = monitor
@@ -426,12 +448,11 @@ pub fn band_chart(monitor: Rc<RefCell<Monitor>>, accent: Rgb) -> gtk::DrawingAre
 pub fn accuracy_chart(
     monitor: Rc<RefCell<Monitor>>,
     range: Rc<Cell<u64>>,
-    accent: Rgb,
 ) -> gtk::DrawingArea {
     let area = area(220);
     area.set_draw_func(move |widget, cr, width, height| {
         prepare(cr);
-        let palette = Palette::from_widget(widget, accent);
+        let palette = Palette::from_widget(widget);
         let monitor = monitor.borrow();
         let now = monitor.now as f64;
         let range = range.get() as f64;
