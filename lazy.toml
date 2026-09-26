@@ -37,6 +37,7 @@ run = [
 
 [commands.install]
 desc = "Install Raven Power and its desktop entry (may need sudo)"
+escalate = true
 dep = ["build"]
 run = [
   "install -Dm755 {{target}} {{bindir}}/{{binary}}",
