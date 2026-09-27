@@ -1,5 +1,6 @@
 mod chart;
 mod desktop;
+mod glass_tint;
 mod history;
 mod monitor;
 mod power;
@@ -118,7 +119,7 @@ thread_local! {
 }
 
 /// Read desktop.toml and apply it: light/dark, the accent (stylesheet and
-/// charts), and glass on the open windows. The override provider is
+/// charts), the glass theme, and glass on the open windows. The override provider is
 /// replaced, never stacked, so this runs again on every change.
 fn apply_look() {
     let desktop = desktop::Desktop::load();
@@ -135,6 +136,10 @@ fn apply_look() {
         css.push_str(include_str!("raven-glass-light.css"));
         css.push_str(include_str!("style-light.css"));
     }
+    css.push_str(&glass_tint::css(
+        &look.glass_theme,
+        look.theme_mode == desktop::ThemeMode::Light,
+    ));
     if let Some(display) = gdk::Display::default() {
         OVERRIDES.with(|slot| {
             if let Some(old) = slot.borrow_mut().take() {
