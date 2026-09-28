@@ -1,6 +1,7 @@
-/* Raven Power's own classes, on top of raven-glass.css. Everything the
-   other Raven apps also draw — cards, lists, rows, notes, alerts — comes
-   from the shared file; only what is particular to a battery lives here. */
+/* Raven Power's own classes, on top of Raven Glass (raven-glass.css from the
+   raven-glass crate in RavenGUI, installed in /usr/share/raven/glass/).
+   Everything the other Raven apps also draw — cards, lists, rows, notes,
+   alerts — comes from the shared sheet; only what is particular to a battery lives here. */
 
 .page { padding: 22px 30px 30px; }
 

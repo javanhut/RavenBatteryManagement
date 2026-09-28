@@ -1,4 +1,5 @@
-/* Raven Power's own classes, light. Laid over raven-glass-light.css when the
+/* Raven Power's own classes, light. Laid over Raven Glass's light sheet
+   (raven-glass-light.css, in /usr/share/raven/glass/) when the
    desktop's theme mode is light; only what style.css draws for a dark
    ground is restated. */
 .profile-card:hover { background-color: alpha(#ffffff, 0.95); }

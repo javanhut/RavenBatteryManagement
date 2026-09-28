@@ -517,12 +517,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "raven-glass"
+version = "0.0.1"
+
+[[package]]
 name = "raven-power"
 version = "0.1.0"
 dependencies = [
  "glib",
  "gtk4",
  "libadwaita",
+ "raven-glass",
  "serde",
  "serde_json",
  "toml",

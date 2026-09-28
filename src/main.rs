@@ -1,6 +1,5 @@
 mod chart;
 mod desktop;
-mod glass_tint;
 mod history;
 mod monitor;
 mod power;
@@ -90,14 +89,16 @@ fn main() -> glib::ExitCode {
     app.run()
 }
 
-/// The shared Raven Glass sheet, then this app's own classes, in one
+/// The shared Raven Glass sheet (the raven-glass crate in RavenGUI, read
+/// from /usr/share/raven/glass/), then this app's own classes, in one
 /// provider; the accent and light-mode overrides go in a second one above
 /// it, exactly as Settings and Store layer theirs, and follow desktop.toml.
 fn load_css() {
     let display = gdk::Display::default().expect("A graphical display is required");
     let provider = gtk::CssProvider::new();
-    provider.load_from_string(concat!(
-        include_str!("raven-glass.css"),
+    provider.load_from_string(&format!(
+        "{}{}",
+        raven_glass::base_css(),
         include_str!("style.css")
     ));
     gtk::style_context_add_provider_for_display(
@@ -133,10 +134,10 @@ fn apply_look() {
     let mut css =
         format!("@define-color accent_bg_color {accent};\n@define-color accent_color {accent};\n");
     if look.theme_mode == desktop::ThemeMode::Light {
-        css.push_str(include_str!("raven-glass-light.css"));
+        css.push_str(raven_glass::light_css());
         css.push_str(include_str!("style-light.css"));
     }
-    css.push_str(&glass_tint::css(
+    css.push_str(&raven_glass::tint::css(
         &look.glass_theme,
         look.theme_mode == desktop::ThemeMode::Light,
     ));
